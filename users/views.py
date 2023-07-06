@@ -1,6 +1,6 @@
 from django.shortcuts import render
-from rest_framework import generics
-from .serializers import UserCreateSerializer, UnverifiedView, UserLoginSerializer, UserProfileSerializer, UserProfileInfoSerializer, UserProfileCreateSerializer, UserStateSerializer
+from rest_framework import generics, views
+from .serializers import UserRegisterSerializer, UserCompleteProfileSerializer, AddressVerificationSerializer, MyUserSerializer, UnverifiedView, UserLoginSerializer, UserProfileSerializer, UserProfileInfoSerializer, UserProfileCreateSerializer, UserStateSerializer, AddFamilyMemberSerializer
 from rest_framework.views import APIView
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -9,10 +9,14 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAuthenticated
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import MyUser
+from .models import MyUser, FamilyHeadAddresses
 from django.contrib.auth.models import Group
+from .helper_function import password_generate
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from django.dispatch import Signal
+from .signals import member_added
 
-# Create your views here.
 
 # ========================================FOUR VIEW METHODS========================================
 # class UserCreate(APIView): #generics.CreateAPIView
@@ -36,12 +40,44 @@ from django.contrib.auth.models import Group
 #     serializer_class = UserCreateSerializer
 #     return Response(serializer_class.data)
 
-class UserCreate(generics.CreateAPIView): #generics.CreateAPIView
-    serializer_class = UserCreateSerializer
+# class UserCompleteProfile(generics.CreateAPIView): #generics.CreateAPIView
+#     serializer_class = UserCompleteProfileSerializer
+
+#     def post(self, request, *args, **kwargs):
+#         try:
+#             serializer_class = UserCompleteProfileSerializer(data=request.data)
+#             if serializer_class.is_valid():
+#                 serializer_class.save()
+#                 user = MyUser.objects.get(phone_number = serializer_class.data['phone_number'])
+#                 # refresh = RefreshToken.for_user(user)
+#                 return Response({
+#                     'status' : 200,
+#                     'data': serializer_class.data,
+#                     # 'refresh' : str(refresh),
+#                     # 'access' : str(refresh.access_token),
+#                     'message' : "Profile Updated Successfull!",
+
+#                 })
+            
+#             return Response({
+#                     'status' : 400,
+#                     'message' : "Something Went Wrong!",
+#                     'data' : serializer_class.errors,
+
+#                 })
+#         except Exception as e:
+#             print(e)
+#             return Response({
+#                 'error': e,
+#                              })
+
+
+class UserRegister(generics.CreateAPIView): #generics.CreateAPIView
+    serializer_class = UserRegisterSerializer
 
     def post(self, request, *args, **kwargs):
         try:
-            serializer_class = UserCreateSerializer(data=request.data)
+            serializer_class = UserRegisterSerializer(data=request.data)
             if serializer_class.is_valid():
                 serializer_class.save()
                 user = MyUser.objects.get(phone_number = serializer_class.data['phone_number'])
@@ -66,6 +102,34 @@ class UserCreate(generics.CreateAPIView): #generics.CreateAPIView
             return Response({
                 'error': e,
                              })
+
+class UserCompleteProfile(generics.UpdateAPIView): #generics.CreateAPIView
+    serializer_class = UserCompleteProfileSerializer
+    queryset = MyUser.objects.all()
+    http_method_names = ['patch']
+    lookup_field = 'phone_number'
+    
+    
+class AddressVerification(generics.CreateAPIView):
+    serializer_class = AddressVerificationSerializer
+    queryset = FamilyHeadAddresses.objects.all()
+
+    # lookup_field = 'family'
+    # def post(self, request):
+    #     serializer_class = AddressVerificationSerializer(data=request.data)
+    #     if serializer_class.is_valid():
+    #         serializer_class.save()
+    #         return Response({
+    #             'status' : 201,
+    #             'message' : "Address Details Updated! verification Pending"
+    #         })
+    #     else:
+    #         return Response({
+    #             'status' : 400,
+    #             'message' : "Something Went Wrong!",
+    #             'data' : serializer_class.errors,
+    #         })
+
 
 class UserLogin(generics.CreateAPIView):
     serializer_class = UserLoginSerializer
@@ -112,7 +176,12 @@ class UserProfile(generics.RetrieveAPIView):
     # def get_queryset(self):
     #     return MyUser.objects.filter(phone_number = self.kwargs['phone_number'])
     def get(self, request, phone_number):
-        if (request.user.phone_number == phone_number) or (request.user.groups.filter(name='Management').exists()):
+        if (request.user.groups.filter(name='Verified Residents').exists() and request.user.groups.filter(name='Family Head').exists()) or (request.user.groups.filter(name='Management').exists()):
+            user1 = MyUser.objects.get(phone_number = phone_number)
+            serializer_class = MyUserSerializer(user1) #FamilyHeadViewSerializer(user1)
+            print(serializer_class.data, "========================")
+            return Response(serializer_class.data)
+        elif (request.user.phone_number == phone_number):
             user1 = MyUser.objects.get(phone_number = phone_number)
             serializer_class = UserProfileSerializer(user1)
             return Response(serializer_class.data)
@@ -122,7 +191,73 @@ class UserProfile(generics.RetrieveAPIView):
                     })
 
 
-    
+class AddFamilyMembers(generics.CreateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = AddFamilyMemberSerializer
+
+    def post(self, request):
+        print(request.user.groups.filter(name = "Verified Residents").exists() , request.user.groups.filter(name = "Family Head").exists())
+        if request.user.groups.filter(name = "Verified Residents").exists() and request.user.groups.filter(name = "Family Head").exists():
+            family_head_phone_number = request.data['family_head_phone_number']
+            user_info = request.data
+            password = password_generate(user_info['phone_number'], user_info['first_name'])
+            group_info = Group.objects.get(name = "Verified Residents")
+            register_user = {"phone_number" : user_info['phone_number'], "password" : password}
+            register_user_serializer = UserRegisterSerializer(data = register_user)
+            
+            if register_user_serializer.is_valid():
+                register_user_serializer.save()
+            else:
+                return Response({"status" : 401,
+                            "message":"Something Went Wrong!",
+                            })
+            member_added.send(sender=MyUser, instance=register_user_serializer.data, group = group_info.id, family_head = family_head_phone_number)
+            # reg_user = MyUser.objects.get(phone_number = register_user['phone_number'])
+            # reg_user.groups.add(group_info.id)
+            # profile_complete = {"groups": group_info.id, "first_name" : user_info['first_name'], "last_name" : user_info['last_name'], "aadhar_number" : user_info["aadhar_number"]}
+            
+            # complete_profile_serializer = UserCompleteProfileSerializer(data = profile_complete)
+            try:
+                complete_profile_info = MyUser.objects.filter(phone_number =register_user['phone_number']).update(first_name = user_info['first_name'], last_name = user_info['last_name'], aadhar_number = user_info["aadhar_number"])
+                # complete_profile_serializer.is_valid()
+                # complete_profile_serializer.save()
+            except Exception as e:
+                print(str(e))
+                return Response({"status" : 401,
+                            "message":"Something Went Wrong!",
+                            "error" : str(e)
+                            })
+            # add_member = Signal(instance=register_user_serializer, group = group_info.id, family_head = family_head_phone_number)
+            # member_aaded(sender=MyUser, instance=register_user_serializer, group = group_info.id, family_head = family_head_phone_number)
+            return Response({"status" : 200,
+                            "message":"User Created Successfully!",
+                            "data" : f"{complete_profile_info}, {register_user_serializer.data}",
+                            "group" : str(group_info)
+                            })
+        return Response({"status" : 401,
+                            "message":"Something Went Wrong!",
+                            })
+
+            
+
+
+# class FamilyMembersInfo(generics.RetrieveAPIView):
+#     permission_classes = [IsAuthenticated]
+#     # authentication_classes = [JWTAuthentication]
+#     serializer_class = FamilyMembersInfoSerializer
+#     lookup_field = "phone_number"
+#     # def get_queryset(self):
+#     #     return MyUser.objects.filter(phone_number = self.kwargs['phone_number'])
+#     def get(self, request, phone_number):
+#         if (request.user.groups.filter(name='Verified Residents').exists() and request.user.groups.filter(name='Family Head').exists()) or (request.user.groups.filter(name='Management').exists()):
+#             user1 = MyUser.objects.get(phone_number = phone_number)
+#             serializer_class = MyUserSerializer(user1) #FamilyHeadViewSerializer(user1)
+#             print(serializer_class.data, "========================")
+#             return Response(serializer_class.data)
+#         return Response({
+#                         'status' : 400,
+#                         'message' : "Invalid Command!",
+#                     })
     
 class UnverifiedUsers(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
@@ -164,7 +299,7 @@ class VerifyResidents(generics.UpdateAPIView):
     group_name_updated = 'Verified Residents'
     def patch(self, request): #, phone_number
         if request.user.groups.filter(name='Management').exists():
-            print(request.data['phone_number'], request.user, request.user)
+            # print(request.data['phone_number'], request.user, request.user)
             user = MyUser.objects.filter(phone_number = request.data['phone_number'])
             group_name = Group.objects.get(name = self.group_name_updated)
             group_remove = Group.objects.get(name = "Unverified Residents")

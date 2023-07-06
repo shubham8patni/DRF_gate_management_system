@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import MyUser
+from .models import MyUser, FamilyHeadtoMember
 
 # Register your models here.
 
@@ -16,11 +16,33 @@ class MyUserAdmin(UserAdmin):
         ('Groups and Permissions', {'fields' : ('groups','user_permissions')})
     )
 
+    add_fieldsets = (
+        (None, {
+            'classes': ('wide',),
+            'fields': ('phone_number', 'password1', 'password2', 'groups', 'is_staff', 'is_active'),
+        }),
+    )
+    
     search_fields = ('phone_number',)
     ordering=('date_joined',)
 
 
+# class FamilyRelationAdmin(UserAdmin):
+    
+#     model = FamilyHeadtoMember
+#     list_display = ('family_head', 'family_members')
+
+#     # add_fieldsets = (
+#     #     (None, {
+#     #         'classes': ('wide',),
+#     #         'fields': ('family_head', 'family_members'),
+#     #     }),
+#     # )
+
+
+
 
 admin.site.register(MyUser, MyUserAdmin)
+# admin.site.register(FamilyHeadtoMember,FamilyRelationAdmin )
 
 # admin.site.register(MyUser)

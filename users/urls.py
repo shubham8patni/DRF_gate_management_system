@@ -1,5 +1,5 @@
 from django.urls import path, re_path
-from .views import UserCreate, UserProfile, UnverifiedUsers, UserLogin, VerifyResidents, VerifyGuards, Users, UserState, adminProfileView
+from .views import UserRegister, UserCompleteProfile, UserProfile, AddressVerification, UnverifiedUsers, UserLogin, VerifyResidents, VerifyGuards, Users, UserState, adminProfileView, AddFamilyMembers #ProfileCompleteion
 
 # drf_yasg code starts here
 from rest_framework import permissions
@@ -28,9 +28,15 @@ urlpatterns = [
          name='schema-swagger-ui'),  #<-- Here
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0),
          name='schema-redoc'),  #<-- Here
-    path('register/', UserCreate.as_view(), name = "register"),
+    path('register/', UserRegister.as_view(), name = "register"),
+    path('complete_profile/<str:phone_number>/', UserCompleteProfile.as_view(), name = "complete_profile"),
+    path('address_verification/', AddressVerification.as_view(), name = "address_verification"),
     path('login/', UserLogin.as_view(), name ='user_login'), #residents,guards
+    path('add_members/', AddFamilyMembers.as_view(), name ='add_members'), #residents,guards
     path('user_profile/<str:phone_number>/', UserProfile.as_view(), name = "user_profile"),
+    
+    
+    #path('complete_profile/', ProfileCompleteion.as_view(), name ='complete_profile'), #residents,guards
     path('unverified/<str:type>/', UnverifiedUsers.as_view(), name ='unverifiedUsers'), #residents,guards
     path('VerifyResidents/', VerifyResidents.as_view(), name ='VerifyResidents'), #residents,guards
     path('VerifyGuards/', VerifyGuards.as_view(), name ='VerifyGuards'), #residents,guards
